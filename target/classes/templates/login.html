@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sign in — Demo App</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}" />
+</head>
+<body>
+
+<div class="card">
+
+    <div class="card-header">
+        <div class="logo">⬡</div>
+        <h1>Sign in</h1>
+        <p class="subtitle">Demo Login Microservice</p>
+    </div>
+
+    <!--
+        Spring Security reads the "username" and "password" fields by name.
+        The action must POST to /login.  th:action keeps the context path correct.
+    -->
+    <form th:action="@{/login}" method="post" class="login-form">
+
+        <!-- Show an error banner if credentials were wrong -->
+        <div th:if="${param.error}" class="alert alert-error">
+            Incorrect username or password. Try again.
+        </div>
+
+        <!-- Show a success banner after logout -->
+        <div th:if="${param.logout}" class="alert alert-success">
+            You have been signed out successfully.
+        </div>
+
+        <div class="field">
+            <label for="username">Username</label>
+            <input id="username"
+                   type="text"
+                   name="username"
+                   placeholder="e.g. alice"
+                   autocomplete="username"
+                   required />
+        </div>
+
+        <div class="field">
+            <label for="password">Password</label>
+            <input id="password"
+                   type="password"
+                   name="password"
+                   placeholder="••••••••"
+                   autocomplete="current-password"
+                   required />
+        </div>
+
+        <button type="submit" class="btn-primary">Sign in</button>
+
+    </form>
+
+    <p class="hint">
+        Demo credentials — <strong>alice / password123</strong> or <strong>admin / admin123</strong>
+    </p>
+
+</div>
+
+</body>
+</html>

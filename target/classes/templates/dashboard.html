@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard — Demo App</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}" />
+</head>
+<body>
+
+<div class="card">
+
+    <div class="card-header">
+        <div class="logo">⬡</div>
+        <h1>Dashboard</h1>
+        <p class="subtitle">You are signed in</p>
+    </div>
+
+    <div class="info-block">
+        <div class="info-row">
+            <span class="info-label">Signed in as</span>
+            <span class="info-value" th:text="${username}">username</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Roles</span>
+            <span class="info-value" th:text="${roles}">ROLE_USER</span>
+        </div>
+    </div>
+
+    <!--
+        POSTing to /logout is required by Spring Security's CSRF protection.
+        th:action adds the correct CSRF token automatically.
+    -->
+    <form th:action="@{/logout}" method="post">
+        <button type="submit" class="btn-secondary">Sign out</button>
+    </form>
+
+</div>
+
+</body>
+</html>
