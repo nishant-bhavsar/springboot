@@ -1,0 +1,348 @@
+LOGIN SERVICE — CODE EXPLANATION
+=================================
+A plain-English walkthrough of every file in the project.
+
+
+═══════════════════════════════════════════════════════════════
+1. pom.xml  (project blueprint)
+═══════════════════════════════════════════════════════════════
+
+This is Maven's configuration file. Think of it as a shopping
+list that tells Maven which libraries to download before
+compiling the project.
+
+We only pull in 4 dependencies:
+
+  spring-boot-starter-web
+    Gives us an embedded Tomcat server and the ability to handle
+    HTTP requests (GET, POST, etc.). Without this, the app
+    wouldn't listen on port 8080 at all.
+
+  spring-boot-starter-thymeleaf
+    Thymeleaf is a templating engine. It takes our HTML files
+    and fills in dynamic values (like the logged-in username)
+    before sending the page to the browser.
+
+  spring-boot-starter-security
+    Provides the entire login/logout mechanism out of the box —
+    session management, CSRF protection, password hashing, and
+    the redirect rules. We configure it in SecurityConfig.java.
+
+  spring-boot-starter-actuator
+    Adds a /actuator/health endpoint. Azure Spring Apps pings
+    this URL to check whether the app is alive and ready to
+    receive traffic (called a "readiness probe").
+
+The <parent> block at the top pulls in Spring Boot's default
+settings so we don't have to manage library versions manually.
+
+
+═══════════════════════════════════════════════════════════════
+2. LoginServiceApplication.java  (entry point)
+═══════════════════════════════════════════════════════════════
+
+This is the first file Java executes when the app starts.
+
+  @SpringBootApplication
+    A shorthand annotation that tells Spring Boot to:
+    - Scan the package for components (controllers, configs, etc.)
+    - Auto-configure libraries based on what's on the classpath
+    - Start the embedded Tomcat server
+
+  SpringApplication.run(...)
+    Boots everything up. After this line the server is live and
+    waiting for requests.
+
+That's all this file does. All real logic lives elsewhere.
+
+
+═══════════════════════════════════════════════════════════════
+3. SecurityConfig.java  (the bouncer)
+═══════════════════════════════════════════════════════════════
+
+This is where we tell Spring Security how to protect the app.
+It has three @Bean methods, each producing one reusable object.
+
+---
+userDetailsService(PasswordEncoder encoder)
+---
+  Creates two hardcoded demo users using Spring's in-memory
+  user store. In a real app this would query a database.
+
+  alice  → password: password123  → role: USER
+  admin  → password: admin123     → role: ADMIN
+
+  The passwords are NOT stored as plain text. We pass them
+  through encoder.encode(...) which produces a BCrypt hash
+  (a one-way scramble). When the user logs in, Spring hashes
+  the typed password and compares the hashes, never the
+  plain text.
+
+---
+passwordEncoder()
+---
+  Returns a BCryptPasswordEncoder instance. BCrypt is the
+  industry-standard algorithm for storing passwords safely.
+  Spring Security uses this bean automatically.
+
+---
+securityFilterChain(HttpSecurity http)
+---
+  Defines the URL access rules and login/logout behaviour:
+
+  .requestMatchers("/css/**", "/actuator/health", "/login").permitAll()
+    These three URL patterns are public — no login needed.
+    - /css/**        → stylesheet must load even before login
+    - /actuator/health → Azure's health probe must work anytime
+    - /login         → obviously the login page must be public
+
+  .anyRequest().authenticated()
+    Every other URL (/dashboard, anything else) requires the
+    user to be logged in. If not, Spring redirects to /login.
+
+  .formLogin(...)
+    - loginPage("/login")         → use our custom HTML page
+    - defaultSuccessUrl("/dashboard") → go here on success
+    - failureUrl("/login?error")  → go here on bad credentials
+
+  .logout(...)
+    - logoutSuccessUrl("/login?logout") → go here after logout
+    Spring automatically handles POST /logout and destroys
+    the session. We don't write any logout code ourselves.
+
+
+═══════════════════════════════════════════════════════════════
+4. PageController.java  (the page router)
+═══════════════════════════════════════════════════════════════
+
+This controller handles two GET requests and returns the name
+of the HTML template to render.
+
+---
+GET /login  →  loginPage()
+---
+  Returns the string "login", which Thymeleaf maps to the file
+  templates/login.html. Spring Security automatically intercepts
+  the POST /login form submission — we don't write that handler.
+
+---
+GET /dashboard  →  dashboard(Authentication, Model)
+---
+  Spring Security injects an Authentication object into this
+  method automatically. It contains everything about the
+  currently logged-in user.
+
+  We extract two things and put them in the Model:
+    username  → the user's login name (e.g. "alice")
+    roles     → their granted authorities (e.g. [ROLE_USER])
+
+  Thymeleaf reads these from the Model and inserts them into
+  the dashboard HTML using th:text="${username}".
+
+  If someone tries to access /dashboard without being logged in,
+  Spring Security intercepts the request before this method even
+  runs and redirects to /login.
+
+
+═══════════════════════════════════════════════════════════════
+5. application.properties  (runtime settings)
+═══════════════════════════════════════════════════════════════
+
+  spring.application.name=login-service
+    Names the app. Azure Spring Apps uses this name in logs and
+    in the default URL it generates.
+
+  server.port=8080
+    The port Tomcat listens on. Azure Spring Apps expects 8080
+    by default.
+
+  management.endpoints.web.exposure.include=health
+    Only expose the /actuator/health endpoint over HTTP. Keeps
+    all other actuator endpoints (metrics, env, etc.) private.
+
+  management.endpoint.health.show-details=always
+    Makes the health response include component details like
+    disk space and ping status. Useful for debugging.
+
+
+═══════════════════════════════════════════════════════════════
+6. login.html  (the login form)
+═══════════════════════════════════════════════════════════════
+
+A Thymeleaf HTML template. Lines starting with "th:" are
+Thymeleaf attributes that are processed server-side.
+
+  th:action="@{/login}"
+    Generates the correct form action URL including any
+    context path. Spring Security listens on POST /login.
+
+  name="username" and name="password"
+    These field names are what Spring Security looks for. They
+    must be exactly "username" and "password" (or you'd need
+    extra config).
+
+  th:if="${param.error}"
+    Shows a red error banner only when the URL contains ?error
+    (which Spring Security adds after a failed login attempt).
+
+  th:if="${param.logout}"
+    Shows a green success banner only when the URL contains
+    ?logout (which Spring Security adds after logout).
+
+  The CSRF token is injected automatically by Thymeleaf's
+  Spring Security integration. Without it, Spring would reject
+  the POST as a potential cross-site request forgery attack.
+
+
+═══════════════════════════════════════════════════════════════
+7. dashboard.html  (the post-login page)
+═══════════════════════════════════════════════════════════════
+
+  th:text="${username}"
+    Replaced at render time with the value "alice" or "admin"
+    that PageController put in the Model.
+
+  th:text="${roles}"
+    Replaced with the user's roles, e.g. [ROLE_USER].
+
+  th:action="@{/logout}"
+    The logout form POSTs to /logout. Thymeleaf automatically
+    includes the CSRF token so Spring Security accepts it.
+
+  Why POST for logout? Using GET /logout would allow an
+  attacker to embed an image tag like:
+    <img src="https://yourapp.com/logout">
+  ...and silently log users out. POST + CSRF token prevents this.
+
+
+═══════════════════════════════════════════════════════════════
+8. style.css  (the look and feel)
+═══════════════════════════════════════════════════════════════
+
+Plain CSS — no frameworks, no build step needed.
+
+  body uses flexbox to center the card both horizontally and
+  vertically on the page, regardless of screen size.
+
+  .card is the white rounded box containing everything. Its
+  box-shadow gives it a subtle floating appearance.
+
+  .field input:focus uses an indigo outline glow to clearly
+  show which field the keyboard is in (important for
+  accessibility).
+
+  .alert-error / .alert-success are the red and green
+  banner styles shown for login failures and logouts.
+
+  .btn-primary is the indigo "Sign in" button.
+  .btn-secondary is the lighter "Sign out" button on the
+  dashboard.
+
+
+═══════════════════════════════════════════════════════════════
+9. .github/workflows/deploy.yml  (the CI/CD pipeline)
+═══════════════════════════════════════════════════════════════
+
+This file tells GitHub Actions what to do automatically every
+time you push code to the main branch.
+
+---
+Trigger
+---
+  on:
+    push:
+      branches: [main]
+
+  The pipeline runs on every push to main. It does NOT run on
+  other branches, so you can work on feature branches freely.
+
+---
+Job 1: build
+---
+  Runs on a fresh Ubuntu virtual machine provided by GitHub.
+
+  Step 1 — Checkout source code
+    Downloads the repository contents onto the VM.
+
+  Step 2 — Set up Java 17
+    Installs Java 17 (Temurin distribution) and enables the
+    Maven dependency cache. Caching ~/.m2 speeds up subsequent
+    runs by reusing already-downloaded libraries.
+
+  Step 3 — Build with Maven
+    mvn clean package -DskipTests
+    - clean    → delete any previous build output
+    - package  → compile and package everything into a JAR file
+    - -DskipTests → skip unit tests for demo speed
+
+  Step 4 — Upload JAR
+    Saves the built JAR file as a GitHub Actions artifact so
+    the next job (deploy) can download it.
+
+---
+Job 2: deploy
+---
+  Only runs if Job 1 (build) succeeded.
+
+  Step 1 — Download JAR
+    Retrieves the JAR that build job uploaded.
+
+  Step 2 — Log in to Azure
+    Uses the AZURE_CREDENTIALS secret (a service principal JSON)
+    to authenticate with Azure. This is like logging in with
+    "az login" but non-interactively.
+
+  Step 3 — Deploy to Azure Spring Apps
+    Uses Microsoft's official azure/spring-apps-deploy action.
+    It uploads the JAR to your Azure Spring Apps instance and
+    triggers a rolling deployment. Azure handles starting the
+    new version and stopping the old one.
+
+---
+Secrets vs Variables
+---
+  Secrets (AZURE_CREDENTIALS, AZURE_SUBSCRIPTION_ID)
+    Encrypted values. Never shown in logs. Used for sensitive
+    auth material.
+
+  Variables (AZURE_RESOURCE_GROUP, AZURE_SPRING_APPS_NAME,
+              SPRING_APP_NAME)
+    Plain text values. Visible in logs. Used for non-sensitive
+    config that might differ between environments.
+
+
+═══════════════════════════════════════════════════════════════
+HOW A LOGIN FLOWS END TO END
+═══════════════════════════════════════════════════════════════
+
+1. User visits https://your-app.azuremicroservices.io/dashboard
+
+2. Spring Security checks: is there a valid session for this
+   request? No → redirect to /login.
+
+3. Browser loads GET /login → PageController.loginPage() runs
+   → Thymeleaf renders login.html and sends it to the browser.
+
+4. User types "alice" and "password123", clicks Sign in.
+
+5. Browser sends POST /login with the form data.
+
+6. Spring Security intercepts this POST (our code never sees it).
+   It looks up "alice" in the UserDetailsService, BCrypt-hashes
+   "password123", and compares it to the stored hash.
+
+7. Match! Spring Security creates a session, stores it in a
+   cookie, and redirects the browser to /dashboard.
+
+8. Browser follows redirect to GET /dashboard.
+
+9. Spring Security checks the session cookie — valid. Allows
+   the request through.
+
+10. PageController.dashboard() runs, adds "alice" and
+    "[ROLE_USER]" to the Model.
+
+11. Thymeleaf renders dashboard.html with those values and
+    sends it to the browser.
+
+12. User sees "Signed in as alice".
